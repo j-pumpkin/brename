@@ -1,0 +1,105 @@
+#!/usr/bin/env tclsh
+
+package require Tcl 9.0
+package require cmdline
+
+set optlist {
+    {r "Descend the directories"}
+    {l "Follow links"}
+    {t.arg "Types of matches to rename (f file, d directory, l link)"}
+    {v "Print matches"}
+    {p "Dry run"}
+}
+
+set usage "?options? <dir> <name_pattern> <rename_pattern>"
+
+proc json-usage {usage} {
+    set args {}; set opts {}
+    set lines [split $usage "\n"]
+    set head [split [lindex $lines 0] { }]
+    set name [lindex $head 0]
+    #set params [lindex [regexp -inline {\?(.+)\?} [lindex $head 1]] 1]
+    set i 2
+    foreach word [lrange $head $i end] {
+        if {[regexp {<(.+)>} $word -> match]} {
+            append args "\"$match\""
+            if {$i != [expr [llength $head] - 1]} {append args {,}}
+        }
+    incr i
+    }
+    set i 2
+    foreach line [lrange $lines 1 end-1] {
+        set words [regexp -inline -all {\S+} $line]
+        set head [lindex $words 0]
+        set val [expr {[lindex $words 1] eq {value}} ? true : false]
+        set tail "\"val\":\"$val\",\"desc\":\"[lrange $words 2 end]\""
+        append opts "\{\"$head\":\{$tail\}\}"
+        if {$i != [expr [llength $lines] - 1]} {append opts {,}}
+        incr i
+    }
+    puts "\{\"name\":\"$name\",\"args\":\[$args\],\"opts\":\[$opts\]\}"; exit 2
+}
+
+proc message {type code msg {chan stdout}} {
+    upvar options options
+    if {[info exists ::env(BRENAME_JSON)] && $::env(BRENAME_JSON)} {
+        set msg [regsub -all {\033\[[0-9;]*[A-Za-z]} $msg {}]
+        puts $chan "\{\"type\":\"$type\",\"code\":\"$code\",\"msg\":\"$msg\"\}"
+    } else {
+        puts $chan $msg
+    }
+    if {$type eq {err}} {exit 1}
+}
+
+try {
+    array set options [::cmdline::getoptions argv $optlist $usage]
+} trap {CMDLINE USAGE} {msg o} {
+    if {[info exists ::env(BRENAME_JSON)] && $::env(BRENAME_JSON)} {[json-usage $msg]}
+    puts $msg; exit 0
+}
+
+if {[set dir [lindex $argv 0]] eq {}} {message err {DESTDIR MISSING} {Enter destination dir} stderr}
+if {[set src [lindex $argv 1]] eq {}} {message err {PATTERN1 MISSING} {Enter name pattern} stderr}
+if {[set dst [lindex $argv 2]] eq {}} {message err {PATTERN2 MiSSING} {Enter rename pattern} stderr}
+
+proc descend-dir {dir} {
+    upvar src src dst dst options options
+    foreach f [glob -directory [file normalize $dir] *] {
+        switch [file type $f] {
+            directory {
+                if {$options(r)} {descend-dir $f}
+                if {[lsearch -exact $options(t) {d}] > -1} {rename-match $f}
+            }
+            file {if {[lsearch -exact $options(t) {f}] > -1} {rename-match $f}}
+            link {
+                if {$options(l)} {descend-dir $f}
+                if {[lsearch -exact $options(t) {l}] > -1} {rename-match $f}
+            }
+            default {
+                message warn {FILETYPE UNSUPPORTED}
+                "Filetype of \033\[32m$f\033\[0m (\033\[33m[file type $f]\033\[0m) is not supported, skipping"
+                stderr
+            }
+        }
+    }
+}
+
+proc rename-match {target} {
+    upvar src src dst dst options options
+    set name [file tail $target]; set path [file dirname $target]
+    if {! ([set new_name [regsub $src $name $dst]] eq $name)} {
+        set fullname "$path/$new_name"
+        if {[file exists $fullname]} {
+            message warn {FILE EXISTS} "\033\[35m$fullname\033\[0m exists, skipping \033\[32m$target\033\[0m" stderr
+        } else {
+            if {! $options(p)} {
+                file rename $target $fullname
+                if {$options(v)} {message succ {RENAME SUCCESS} "\033\[32m$target\033\[0m => \033\[35m$fullname\033\[0m"}
+            } else {
+                if {$options(v)} {message succ {MATCH SUCCESS} "\033\[32m$target\033\[0m -> \033\[35m$fullname\033\[0m"}
+            }
+        }
+    }
+}
+
+descend-dir $dir
