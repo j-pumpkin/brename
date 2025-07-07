@@ -1,3 +1,2 @@
-## v2.1.0 (2025-07-07)
-- [Major] `-r` and `-l` options now require a numeric argument; `-r` and `-l` alone are invalid
-- [Minor] added optional `-V` to print version
+## v2.1.1 (2025-07-07)
+- [Minor] fixed descend-dir, recurse and link following now work correctly
