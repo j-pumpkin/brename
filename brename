@@ -1,13 +1,14 @@
-#!/usr/bin/env tclsh
+#!/usr/bin/env tclsh9.0
 
 package require Tcl 9.0
 package require cmdline
 
 set optlist {
-    {r "Descend the directories"}
-    {l "Follow links"}
+    {r.arg 0 "Descend the directories"}
+    {l.arg 0 "Follow links"}
     {t.arg "Types of matches to rename (f file, d directory, l link)"}
     {v "Print matches"}
+    {V "Print version"}
     {p "Dry run"}
 }
 
@@ -58,21 +59,22 @@ try {
     puts $msg; exit 0
 }
 
+if {$options(V)} {message err {VERSION INFO} 2.1.0}
 if {[set dir [lindex $argv 0]] eq {}} {message err {DESTDIR MISSING} {Enter destination dir} stderr}
 if {[set src [lindex $argv 1]] eq {}} {message err {PATTERN1 MISSING} {Enter name pattern} stderr}
 if {[set dst [lindex $argv 2]] eq {}} {message err {PATTERN2 MiSSING} {Enter rename pattern} stderr}
 
-proc descend-dir {dir} {
+proc descend-dir {dir depth} {
     upvar src src dst dst options options
     foreach f [glob -directory [file normalize $dir] *] {
         switch [file type $f] {
             directory {
-                if {$options(r)} {descend-dir $f}
+                if {$options(r) && $depth < $options(r)} {descend-dir $f [incr depth]}
                 if {[lsearch -exact $options(t) {d}] > -1} {rename-match $f}
             }
             file {if {[lsearch -exact $options(t) {f}] > -1} {rename-match $f}}
             link {
-                if {$options(l)} {descend-dir $f}
+                if {$options(l) && $depth < $options(l)} {descend-dir $f [incr depth]}
                 if {[lsearch -exact $options(t) {l}] > -1} {rename-match $f}
             }
             default {
@@ -102,4 +104,4 @@ proc rename-match {target} {
     }
 }
 
-descend-dir $dir
+descend-dir $dir 0
